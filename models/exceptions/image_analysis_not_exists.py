@@ -1,0 +1,2 @@
+class ImageAnalysisNotExists(Exception):
+    pass

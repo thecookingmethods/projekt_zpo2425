@@ -1,4 +1,6 @@
+import io
 import os
+import tempfile
 import threading
 
 from flask import Flask, request
@@ -6,12 +8,16 @@ from keras.src.layers import TextVectorization
 from werkzeug.utils import secure_filename
 import keras
 
+from DAL.image_analysis_repository import ImageAnalysisRepository
+from DAL.temporary_file_container import TemporaryFileContainer
 from model_training import (ImageCaptioningModel,TransformerEncoderBlock,
                             PositionalEmbedding, TransformerDecoderBlock,
                             LRSchedule, load_captions_data)
+from models.exceptions.image_analysis_not_exists import ImageAnalysisNotExists
 from test_model import custom_standardization, generate_caption
 
 app = Flask(__name__)
+
 
 model: ImageCaptioningModel = keras.models.load_model(
     './model.keras',
@@ -40,7 +46,7 @@ vocab = vectorization.get_vocabulary()
 index_lookup = dict(zip(range(len(vocab)), vocab))
 
 db_dir = './uploaded_files'
-os.makedirs(db_dir, exist_ok=True)
+repo = ImageAnalysisRepository(db_dir)
 
 
 @app.route('/', methods=['GET'])
@@ -59,49 +65,44 @@ def analyze_image():
     if file.filename == '':
         return 'plik jest pusty'
 
-    if file.filename.split('.')[-1] == 'jpg':
-        entries_list = os.listdir(db_dir)
-        if len(entries_list) == 0:
-            new_id = 1
-        else:
-            sorted_entries = sorted(entries_list, key=lambda x: int(x))
-            last_id = int(sorted_entries[-1])
-            new_id = last_id + 1
-        new_id = str(new_id)
-        entry_dir = os.path.join(db_dir, new_id)
-        os.makedirs(entry_dir)
-        file_path = os.path.join(entry_dir, 'image.jpg')
+    file_extension = file.filename.split('.')[-1]
+    if file_extension == 'jpg':
+        analysis = repo.create_analysis()
+
+        temp_file_container = TemporaryFileContainer(file_extension)
+        file_path = temp_file_container.get_path()
         file.save(file_path)
 
-        thread = threading.Thread(target=analysis_fun, args=(file_path, entry_dir))
+        thread = threading.Thread(target=analysis_fun, args=(temp_file_container, analysis.id))
         thread.start()
 
-        return new_id
+        return str(analysis.id)
 
     return 'cos poszlo nie tak'
 
 
-def analysis_fun(file_path, entry_dir):
+def analysis_fun(temp_file_container, id: int):
+    file_path = temp_file_container.get_path()
     captions = generate_caption(model, file_path, max_decoded_sentence_length, index_lookup, vectorization)
-    captions_path = os.path.join(entry_dir, "captions.txt")
-    with open(captions_path, 'w') as f:
-        f.write(captions)
+    analysis = repo.get_analysis(id)
+    analysis.caption = captions
+    repo.update_analysis(analysis)
+
 
 @app.route('/image/<analysis_id>', methods=['GET'])
 def get_analysis(analysis_id):
-    entry_dir = os.path.join(db_dir, analysis_id)
-    if not os.path.exists(entry_dir):
+    try:
+        analysis = repo.get_analysis(int(analysis_id))
+    except ImageAnalysisNotExists:
         return 'nieznane id'
 
-    captions_path = os.path.join(db_dir, analysis_id, 'captions.txt')
-    if not os.path.exists(captions_path):
+    if analysis.caption is None:
         return 'analiza w toku...'
 
-    with open(captions_path, 'r') as f:
-        captions = f.read()
-    return captions
+    return analysis.caption
 
 
 
 if __name__ == "__main__":
     app.run(host='localhost', port=8080)
+    #   https://github.com/thecookingmethods/projekt_zpo2425
