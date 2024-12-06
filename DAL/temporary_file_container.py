@@ -19,5 +19,5 @@ class TemporaryFileContainer:
 
     def __del__(self):
         print(f'usuwam plik {self._path}')
-        if self._path is None and os.path.exists(self._path):
+        if self._path is not None and os.path.exists(self._path):
             os.remove(self._path)

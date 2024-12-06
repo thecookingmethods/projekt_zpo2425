@@ -1,0 +1,9 @@
+{
+  "db_dir": "./uploaded_files",
+
+  "ai_model_path": "./model.keras",
+  "ai_model_tokens_path": "./Flickr8k.token.txt",
+
+  "webapi_host": "localhost",
+  "webapi_port": 8080
+}
